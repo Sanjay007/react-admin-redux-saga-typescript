@@ -1,0 +1,7 @@
+export enum GstType {
+  UNREGISTERED = 'UNREGISTERED',
+
+  REGISTERED = 'REGISTERED',
+
+  COMPOSITE = 'COMPOSITE',
+}
