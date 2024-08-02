@@ -1,0 +1,216 @@
+import java.lang.reflect.Field;
+
+public class Record {
+    private int amount;
+    private String source;
+    private String name;
+    private int age;
+
+    // Getters and Setters
+
+    public int getAmount() {
+        return amount;
+    }
+
+    public void setAmount(int amount) {
+        this.amount = amount;
+    }
+
+    public String getSource() {
+        return source;
+    }
+
+    public void setSource(String source) {
+        this.source = source;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public int getAge() {
+        return age;
+    }
+
+    public void setAge(int age) {
+        this.age = age;
+    }
+
+    public Object getFieldValue(String fieldName) throws NoSuchFieldException, IllegalAccessException {
+        Field field = this.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(this);
+    }
+
+    @Override
+    public String toString() {
+        return "Record{" +
+                "amount=" + amount +
+                ", source='" + source + '\'' +
+                ", name='" + name + '\'' +
+                ", age=" + age +
+                '}';
+    }
+}
+
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class ComparisonConfig {
+
+    @Value("${comparison.fields}")
+    private String[] fieldsToCompare;
+
+    public String[] getFieldsToCompare() {
+        return fieldsToCompare;
+    }
+
+    public void setFieldsToCompare(String[] fieldsToCompare) {
+        this.fieldsToCompare = fieldsToCompare;
+    }
+}
+
+
+@Configuration
+@EnableBatchProcessing
+public class BatchConfig {
+
+    @Autowired
+    private JobBuilderFactory jobBuilderFactory;
+
+    @Autowired
+    private StepBuilderFactory stepBuilderFactory;
+
+    @Autowired
+    private ComparisonConfig comparisonConfig;
+
+    @Bean
+    public Job reconciliationJob() {
+        return jobBuilderFactory.get("reconciliationJob")
+                .start(reconciliationStep())
+                .build();
+    }
+
+    @Bean
+    public Step reconciliationStep() {
+        return stepBuilderFactory.get("reconciliationStep")
+                .<Record, Record>chunk(10)
+                .reader(recordReader())
+                .processor(recordProcessor())
+                .writer(recordWriter())
+                .build();
+    }
+
+    @Bean
+    public ItemReader<Record> recordReader() {
+        // Implement your reader logic to read records from the source tables
+        return new YourCustomItemReader();
+    }
+
+    @Bean
+    public ItemProcessor<Record, Record> recordProcessor() {
+        return new ReconciliationProcessor(comparisonConfig);
+    }
+
+    @Bean
+    public ItemWriter<Record> recordWriter() {
+        // Implement your writer logic to handle the reconciliation results
+        return new YourCustomItemWriter();
+    }
+}
+
+
+import java.util.List;
+
+public class ReconciliationProcessor implements ItemProcessor<Record, Record> {
+
+    private List<Record> sourceBRecords;
+    private String[] fieldsToCompare;
+
+    public ReconciliationProcessor(ComparisonConfig comparisonConfig) {
+        // Load source B records, in practice this might be done through a reader
+        sourceBRecords = loadSourceBRecords();
+        this.fieldsToCompare = comparisonConfig.getFieldsToCompare();
+    }
+
+    @Override
+    public Record process(Record sourceARecord) throws Exception {
+        for (Record sourceBRecord : sourceBRecords) {
+            if (compareRecords(sourceARecord, sourceBRecord)) {
+                System.out.println("Match found: " + sourceARecord + " and " + sourceBRecord);
+                return null; // null means the item will be filtered out from writing
+            }
+        }
+        System.out.println("No match found for: " + sourceARecord);
+        return sourceARecord; // No match found, indicating a mismatch
+    }
+
+    private boolean compareRecords(Record recordA, Record recordB) throws NoSuchFieldException, IllegalAccessException {
+        for (String field : fieldsToCompare) {
+            Object valueA = recordA.getFieldValue(field);
+            Object valueB = recordB.getFieldValue(field);
+            if (!valueA.equals(valueB)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private List<Record> loadSourceBRecords() {
+        // Mocked data, in practice this would be loaded from a database or other source
+        List<Record> records = new ArrayList<>();
+        records.add(new Record(500, "b", "Sanja", 20));
+        records.add(new Record(499, "b", "Sanjay", 20));
+        return records;
+    }
+}
+
+public class YourCustomItemReader implements ItemReader<Record> {
+    private List<Record> sourceARecords;
+    private int nextRecordIndex;
+
+    public YourCustomItemReader() {
+        sourceARecords = loadSourceARecords();
+        nextRecordIndex = 0;
+    }
+
+    @Override
+    public Record read() throws Exception {
+        Record nextRecord = null;
+        if (nextRecordIndex < sourceARecords.size()) {
+            nextRecord = sourceARecords.get(nextRecordIndex);
+            nextRecordIndex++;
+        }
+        return nextRecord;
+    }
+
+    private List<Record> loadSourceARecords() {
+        // Mocked data, in practice this would be loaded from a database or other source
+        List<Record> records = new ArrayList<>();
+        records.add(new Record(500, "a", "Sanjay", 20));
+        return records;
+    }
+}
+public class YourCustomItemWriter implements ItemWriter<Record> {
+    @Override
+    public void write(List<? extends Record> items) throws Exception {
+        for (Record item : items) {
+            System.out.println("Mismatch found: " + item);
+        }
+    }
+}
+comparison.fields=amount,name,age
+@SpringBootApplication
+public class ReconciliationApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ReconciliationApplication.class, args);
+    }
+}
+
