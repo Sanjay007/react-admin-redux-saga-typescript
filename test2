@@ -1,0 +1,74 @@
+test2
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+
+public class RecordMatcher {
+
+    public static List<Pair<Record, Record>> matchRecords(List<Record> listA, List<Record> listB, MatchingCriteria criteria) {
+        List<Pair<Record, Record>> matchedRecords = new ArrayList<>();
+        List<String> matchingColumns = criteria.getMatchingColumns();
+
+        for (Record recordA : listA) {
+            boolean matched = false;
+            for (Record recordB : listB) {
+                if (doRecordsMatch(recordA, recordB, matchingColumns)) {
+                    matchedRecords.add(new Pair<>(recordA, recordB));
+                    listB.remove(recordB); // Remove matched item to avoid duplicate matching
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                matchedRecords.add(new Pair<>(recordA, null)); // No match found
+            }
+        }
+
+        // Add remaining unmatched records from listB
+        for (Record remainingRecordB : listB) {
+            matchedRecords.add(new Pair<>(null, remainingRecordB));
+        }
+
+        return matchedRecords;
+    }
+
+    private static boolean doRecordsMatch(Record recordA, Record recordB, List<String> matchingColumns) {
+        try {
+            for (String column : matchingColumns) {
+                Field fieldA = recordA.getClass().getDeclaredField(column);
+                Field fieldB = recordB.getClass().getDeclaredField(column);
+                fieldA.setAccessible(true);
+                fieldB.setAccessible(true);
+                Object valueA = fieldA.get(recordA);
+                Object valueB = fieldB.get(recordB);
+                if (valueA == null || !valueA.equals(valueB)) {
+                    return false; // If any field doesn't match, return false
+                }
+            }
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            e.printStackTrace();
+            return false; // Handle or propagate exception as needed
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        // Example data
+        List<Record> listA = List.of(new Record(1, "Alice", 100.0), new Record(2, "Bob", 150.0));
+        List<Record> listB = List.of(new Record(1, "Alice", 200.0), new Record(3, "Charlie", 150.0));
+
+        // Example matching criteria (parsed from JSON)
+        MatchingCriteria criteria = new MatchingCriteria();
+        criteria.setMatchingColumns(List.of("id", "name"));
+
+        // Perform the matching
+        List<Pair<Record, Record>> matchedRecords = matchRecords(listA, listB, criteria);
+
+        // Print the results
+        matchedRecords.forEach(pair -> {
+            System.out.println("List A: " + (pair.getFirst() != null ? pair.getFirst().toString() : "No Match") +
+                               " - List B: " + (pair.getSecond() != null ? pair.getSecond().toString() : "No Match"));
+        });
+    }
+}
